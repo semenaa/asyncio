@@ -1,27 +1,25 @@
 import asyncio
 import aiohttp
-from more_itertools import chunked
-
+from aioitertools.more_itertools import chunked
 from migrate import Base, Session, SwapiPeople, engine
 
 MAX_REQUESTS_CHUNK = 5
 
 
-# class people_iter:
-#     def __init__(self):
-#         counter = 1
-#
-#     def __iter__(self):
-#         return self
-#
-#     def __next__(self):
-#         if type(self.current) is None:
-#             raise StopIteration
-#         self.counter += 1
+class PeopleIter:
+    def __init__(self):
+        self.counter = 81
+    def __aiter__(self):
+        return self
 
-def people_gen():
-    counter = 0
-    
+    async def __anext__(self):
+        self.session = aiohttp.ClientSession()
+        self.response = await self.session.get(f"https://swapi.py4e.com/api/people/{self.counter}")
+        await self.session.close()
+        if self.response.status == 404:
+            raise StopAsyncIteration
+        self.counter += 1
+        return self.response
 
 
 async def insert_people(people_list_json):
@@ -31,23 +29,19 @@ async def insert_people(people_list_json):
         await session.commit()
 
 
-async def get_people(people_id):
-    session = aiohttp.ClientSession()
-    response = await session.get(f"https://swapi.py4e.com/api/people/{people_id}")
-    json_data = await response.json()
-    await session.close()
-    return json_data
-
-
 async def main():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
-    for person_ids_chunk in chunked(people_gen(), MAX_REQUESTS_CHUNK):
-        person_coros = [get_people(person_id) for person_id in person_ids_chunk]
-        people = await asyncio.gather(*person_coros)
-        insert_people_coro = insert_people(people)
-        asyncio.create_task(insert_people_coro)
+    # for person_ids_chunk in chunked(range(1,100), MAX_REQUESTS_CHUNK):
+    #     person_coros = [get_people(person_id) for person_id in person_ids_chunk]
+    #     people = await asyncio.gather(*person_coros)
+    #     insert_people_coro = insert_people(people)
+    #     asyncio.create_task(insert_people_coro)
+
+    people = PeopleIter()
+    async for person in chunked(people, MAX_REQUESTS_CHUNK):
+        print(person)
 
     main_task = asyncio.current_task()
     insets_tasks = asyncio.all_tasks() - {main_task}
@@ -57,6 +51,4 @@ async def main():
 
 
 if __name__ == "__main__":
-    start = datetime.datetime.now()
     asyncio.run(main())
-    print(datetime.datetime.now() - start)
