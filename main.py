@@ -8,7 +8,8 @@ MAX_REQUESTS_CHUNK = 5
 
 class PeopleIter:
     def __init__(self):
-        self.counter = 81
+        self.counter = 1
+
     def __aiter__(self):
         return self
 
@@ -19,13 +20,28 @@ class PeopleIter:
         if self.response.status == 404:
             raise StopAsyncIteration
         self.counter += 1
-        return self.response
+        self.json = await self.response.json()
+        return self.json
 
 
-async def insert_people(people_list_json):
-    people_list = [SwapiPeople(json=person) for person in people_list_json]
+async def insert_person(person):
+    data = SwapiPeople(
+        name=person['name'],
+        height=person['height'],
+        mass=person['mass'],
+        hair_color=person['hair_color'],
+        skin_color=person['skin_color'],
+        eye_color=person['eye_color'],
+        birth_year=person['birth_year'],
+        gender=person['gender'],
+        homeworld=person['homeworld'],
+        films=', '.join(e for e in person['films']),
+        species=', '.join(e for e in person['species']),
+        vehicles=', '.join(e for e in person['vehicles']),
+        starships=', '.join(e for e in person['starships'])
+    )
     async with Session() as session:
-        session.add_all(people_list)
+        session.add(data)
         await session.commit()
 
 
@@ -33,15 +49,11 @@ async def main():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
-    # for person_ids_chunk in chunked(range(1,100), MAX_REQUESTS_CHUNK):
-    #     person_coros = [get_people(person_id) for person_id in person_ids_chunk]
-    #     people = await asyncio.gather(*person_coros)
-    #     insert_people_coro = insert_people(people)
-    #     asyncio.create_task(insert_people_coro)
-
     people = PeopleIter()
-    async for person in chunked(people, MAX_REQUESTS_CHUNK):
-        print(person)
+    async for people_chunk in chunked(people, MAX_REQUESTS_CHUNK):
+        for person_json in people_chunk:
+            print(person_json)
+            await insert_person(person_json)
 
     main_task = asyncio.current_task()
     insets_tasks = asyncio.all_tasks() - {main_task}
