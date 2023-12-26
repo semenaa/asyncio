@@ -3,29 +3,29 @@ import aiohttp
 from aioitertools.more_itertools import chunked
 from migrate import Base, Session, SwapiPeople, engine
 
-MAX_REQUESTS_CHUNK = 5
+MAX_REQUESTS_CHUNK = 1
 
 
 class PeopleIter:
     def __init__(self):
-        self.counter = 1
+        self.next = 'https://swapi.py4e.com/api/people/?page=1'
 
     def __aiter__(self):
         return self
 
     async def __anext__(self):
-        self.session = aiohttp.ClientSession()
-        self.response = await self.session.get(f"https://swapi.py4e.com/api/people/{self.counter}")
-        await self.session.close()
-        if self.response.status == 404:
+        if self.next is None:
             raise StopAsyncIteration
-        self.counter += 1
+        self.session = aiohttp.ClientSession()
+        self.response = await self.session.get(self.next)
+        await self.session.close()
         self.json = await self.response.json()
+        self.next = self.json['next']
         return self.json
 
 
-async def insert_person(person):
-    data = SwapiPeople(
+async def insert_people(people_list):
+    data = [SwapiPeople(
         name=person['name'],
         height=person['height'],
         mass=person['mass'],
@@ -39,9 +39,9 @@ async def insert_person(person):
         species=', '.join(e for e in person['species']),
         vehicles=', '.join(e for e in person['vehicles']),
         starships=', '.join(e for e in person['starships'])
-    )
+    ) for person in people_list]
     async with Session() as session:
-        session.add(data)
+        session.add_all(data)
         await session.commit()
 
 
@@ -51,13 +51,13 @@ async def main():
 
     people = PeopleIter()
     async for people_chunk in chunked(people, MAX_REQUESTS_CHUNK):
-        for person_json in people_chunk:
-            print(person_json)
-            await insert_person(person_json)
+        for people_jsons in people_chunk:
+            print(people_jsons)
+            await insert_people(people_jsons['results'])
 
-    main_task = asyncio.current_task()
-    insets_tasks = asyncio.all_tasks() - {main_task}
-    await asyncio.gather(*insets_tasks)
+    # main_task = asyncio.current_task()
+    # insets_tasks = asyncio.all_tasks() - {main_task}
+    # await asyncio.gather(*insets_tasks)
 
     print("done")
 
